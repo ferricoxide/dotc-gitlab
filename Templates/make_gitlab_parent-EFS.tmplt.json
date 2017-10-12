@@ -14,7 +14,8 @@
             "GitlabEfsTemplate",
             "GitlabRdsTemplate",
             "GitlabIamTemplate",
-            "GitlabEc2Template"
+            "GitlabEc2Template",
+            "GitlabElbTemplate"
           ]
         },
         {
@@ -29,10 +30,7 @@
             "AdminPubkeyURL",
             "ServerHostname",
             "DnsSuffix",
-            "NoReboot",
-            "NoPublicIp",
             "SubNetId",
-            "AppVolumeDevice",
             "AppVolumeMountPath",
             "AppVolumeSize",
             "AppVolumeType",
@@ -85,10 +83,21 @@
         },
         {
           "Label": {
+            "default": "Proxy (ELB)"
+          },
+          "Parameters": [
+            "GitlabElbSubnets",
+            "GitLabServicePort",
+            "GitLabListenerCert",
+            "GitLabPassesSsh"
+          ]
+        },
+        {
+          "Label": {
             "default": "Miscellaneous"
           },
           "Parameters": [
-            "AwsRegionTld",
+            "ServiceTld",
             "TargetVPC",
             "HaSvcSubnets",
             "RolePrefix"
@@ -106,19 +115,6 @@
     "AmiId": {
       "AllowedPattern": "^ami-[0-9a-z]{8}$|^ami-[0-9a-z]{17}$",
       "Description": "ID of the AMI to launch",
-      "Type": "String"
-    },
-    "AppVolumeDevice": {
-      "AllowedValues": [
-        "",
-        "/dev/xvdf",
-        "/dev/xvdg",
-        "/dev/xvdh",
-        "/dev/xvdi",
-        "/dev/xvdj"
-      ],
-      "Default": "",
-      "Description": "Device to mount an extra EBS volume. Leave blank to launch without an extra application volume",
       "Type": "String"
     },
     "AppVolumeMountPath": {
@@ -145,11 +141,6 @@
       ],
       "Default": "gp2",
       "Description": "Type of EBS volume to create. Ignored if \"AppVolumeDevice\" is blank",
-      "Type": "String"
-    },
-    "AwsRegionTld": {
-      "Default": "amazonaws.com",
-      "Description": "TLD of the Amazon region",
       "Type": "String"
     },
     "BackupCronURL": {
@@ -227,10 +218,30 @@
       "Description": "URL of the script that localizes GitLab for running in the target environment",
       "Type": "String"
     },
+    "GitLabListenerCert": {
+      "Default": "",
+      "Description": "Name/ID of the ACM-managed SSL Certificate to protect public listener.",
+      "Type": "String"
+    },
+    "GitLabPassesSsh": {
+      "AllowedValues": [
+        "false",
+        "true"
+      ],
+      "Default": "true",
+      "Description": "Whether to allow SSH passthrough to GitLab master.",
+      "Type": "String"
+    },
     "GitLabPrepScript": {
       "AllowedPattern": "^http://.*\\.sh$|^https://.*\\.sh$",
       "Description": "URL of the script that preps the OS to host GitLab",
       "Type": "String"
+    },
+    "GitLabServicePort": {
+      "Default": "80",
+      "Description": "TCP Port number that the GitLab host listens to.",
+      "MaxValue": "65535",
+      "Type": "Number"
     },
     "GitRepoShareFsPath": {
       "Description": "URI of network share hosting persisted git repository content.",
@@ -262,6 +273,15 @@
     "GitlabEfsTemplate": {
       "AllowedPattern": "^$|^http://.*$|^https://.*$",
       "Description": "URL to the child-template for creating the GitLab EFS service.",
+      "Type": "String"
+    },
+    "GitlabElbSubnets": {
+      "Description": "Select three subnets - each from different Availability Zones.",
+      "Type": "List<AWS::EC2::Subnet::Id>"
+    },
+    "GitlabElbTemplate": {
+      "AllowedPattern": "^$|^http://.*$|^https://.*$",
+      "Description": "URL to the child-template for creating the GitLab service's ELB",
       "Type": "String"
     },
     "GitlabIamTemplate": {
@@ -331,24 +351,6 @@
     },
     "LdapUserPassword": {
       "Description": "Password of the user that has directory-lookup privileges on the target directory service.",
-      "Type": "String"
-    },
-    "NoPublicIp": {
-      "AllowedValues": [
-        "false",
-        "true"
-      ],
-      "Default": "true",
-      "Description": "Controls whether to assign the instance a public IP. Recommended to leave at \"true\" _unless_ launching in a public subnet",
-      "Type": "String"
-    },
-    "NoReboot": {
-      "AllowedValues": [
-        "false",
-        "true"
-      ],
-      "Default": "false",
-      "Description": "Controls whether to reboot the instance as the last step of cfn-init execution",
       "Type": "String"
     },
     "PgsqlVersion": {
@@ -460,7 +462,7 @@
         "Parameters": {
           "AdminPubkeyURL": { "Ref": "AdminPubkeyURL" },
           "AmiId": { "Ref": "AmiId" },
-          "AppVolumeDevice": { "Ref": "AppVolumeDevice" },
+          "AppVolumeDevice": "/dev/xvdf",
           "AppVolumeMountPath": { "Ref": "AppVolumeMountPath" },
           "AppVolumeSize": { "Ref": "AppVolumeSize" },
           "AppVolumeType": { "Ref": "AppVolumeType" },
@@ -475,7 +477,7 @@
               [
                 "https://cloudformation",
                 { "Ref": "AWS::Region" },
-                { "Ref": "AwsRegionTld" }
+                { "Ref": "ServiceTld" }
               ]
             ]
           },
@@ -492,7 +494,7 @@
                 ".efs.",
                 { "Ref": "AWS::Region" },
                 ".",
-                { "Ref": "AwsRegionTld" },
+                { "Ref": "ServiceTld" },
                 ":",
                 { "Ref": "GitRepoShareFsPath" }
               ]
@@ -509,14 +511,16 @@
           "LdapProxyUser": { "Ref": "LdapProxyUser" },
           "LdapSearchBase": { "Ref": "LdapSearchBase" },
           "LdapUserPassword": { "Ref": "LdapUserPassword" },
-          "NoPublicIp": { "Ref": "NoPublicIp" },
-          "NoReboot": { "Ref": "NoReboot" },
+          "NoPublicIp": "true",
+          "NoReboot": "true",
           "PipIndexFips": { "Ref": "PipIndexFips" },
           "PipRpm": { "Ref": "PipRpm" },
           "ProvisionUser": { "Ref": "ProvisionUser" },
           "ProxyName": { "Ref": "ProxyName" },
           "PyStache": { "Ref": "PyStache" },
-          "RdsDbAdmin": { "Fn::GetAtt": [ "RdsRes", "Outputs.RdsDbUserName" ] },
+          "RdsDbAdmin": {
+            "Fn::GetAtt": [ "RdsRes", "Outputs.RdsDbUserName" ]
+          },
           "RdsDbHost": {
             "Fn::GetAtt": [ "RdsRes", "Outputs.RdsEndpointAddress" ]
           },
@@ -546,6 +550,37 @@
           "SubNetId": { "Ref": "SubNetId" }
         },
         "TemplateURL": { "Ref": "GitlabEc2Template" },
+        "TimeoutInMinutes": "10"
+      },
+      "Type": "AWS::CloudFormation::Stack"
+    },
+    "ElbRes": {
+      "Properties": {
+        "Parameters": {
+          "GitLabInstanceId": {
+            "Fn::GetAtt": [ "Ec2Res", "Outputs.GitLabInstanceId" ]
+          },
+          "GitLabListenPort": "443",
+          "GitLabListenerCert": { "Ref":  "GitLabListenerCert" },
+          "GitLabPassesSsh": { "Ref": "GitLabPassesSsh" },
+          "GitLabServicePort": { "Ref": "GitLabServicePort" },
+          "HaSubnets": {
+            "Fn::Join": [
+              ",",
+              { "Ref": "GitlabElbSubnets" }
+            ]
+          },
+          "ProxyPrettyName": { "Ref": "AWS::StackName" },
+          "SecurityGroupIds": {
+            "Fn::Join": [
+              ",",
+              [
+                { "Fn::GetAtt": [ "SgRes", "Outputs.AppSg" ] }
+              ]
+            ]
+          }
+        },
+        "TemplateURL": { "Ref": "GitlabElbTemplate" },
         "TimeoutInMinutes": "10"
       },
       "Type": "AWS::CloudFormation::Stack"
@@ -591,9 +626,7 @@
           "DbInstanceType": { "Ref": "DbInstanceType" },
           "DbIsMultiAz": "true",
           "DbNodeName": { "Ref": "DbNodeName" },
-          "DbSecurityGroup": {
-            "Fn::GetAtt": [ "SgRes", "Outputs.RdsSg" ]
-          },
+          "DbSecurityGroup": { "Fn::GetAtt": [ "SgRes", "Outputs.RdsSg" ] },
           "DbSubnets": {
             "Fn::Join": [
               ",",
